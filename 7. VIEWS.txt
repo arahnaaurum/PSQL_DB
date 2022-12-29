@@ -1,0 +1,35 @@
+/* Неизменяемое представление: выводит название лэйблов по количеству песен лейбла, загруженных в плейлисты юзеров,
+от большего к меньшему */
+CREATE VIEW labels_in_playlists AS
+	SELECT DISTINCT
+	labels.title AS label,
+	COUNT(songs.id) OVER (PARTITION BY labels.title) as all_label_songs
+	FROM songs
+		JOIN albums
+		ON albums.id = songs.album_id
+		JOIN labels
+		ON labels.id = albums.label_id
+		JOIN playlists_songs
+		ON playlists_songs.song_id = songs.id
+	ORDER BY all_label_songs DESC;
+
+
+/* Неизменяемое представление: выводит id и название песен, не вошедших ни в "Избранное", ни в чей-либо плэйлист */
+CREATE VIEW songs_not_added_anywhere AS
+	SELECT songs.id, songs.title
+	FROM songs
+		FULL OUTER JOIN playlists_songs
+		ON playlists_songs.song_id = songs.id
+		FULL OUTER JOIN favourites
+		ON favourites.song_id = songs.id
+	WHERE (playlists_songs.playlist_id IS NULL) AND (favourites.user_id IS NULL)
+	ORDER BY songs.id;
+
+/* Изменяемое представление: выводит id и название песен, изданных как синглы (без альбома) */
+CREATE VIEW singles AS
+	SELECT songs.id, songs.title
+	FROM songs
+	WHERE songs.album_id IS NULL;
+
+/* Проверка того, что представление является изменяемым */
+UPDATE singles SET title = 'PshPsh' WHERE id = 50;

@@ -1,0 +1,122 @@
+1. Возьмем запрос из задания #5, построенный при помощи подзапросов и построим план выполнения запроса в текущем виде:
+
+EXPLAIN ANALYZE SELECT profiles.profile_pic_url FROM profiles
+	WHERE profiles.user_id = (
+	SELECT favourites.user_id FROM favourites
+	WHERE favourites.song_id = (
+		SELECT songs.id FROM songs
+		ORDER BY (songs.uploaded_at) ASC
+		LIMIT 1
+	));
+
+2. Первоначальный план запроса в текстовом виде:
+QUERY PLAN
+text
+"Seq Scan on profiles  (cost=5.75..8.99 rows=1 width=31) (actual time=0.246..0.254 rows=1 loops=1)"
+"  Filter: (user_id = $1)"
+"  Rows Removed by Filter: 99"
+"  InitPlan 2 (returns $1)"
+"    ->  Seq Scan on favourites  (cost=3.50..5.75 rows=1 width=4) (actual time=0.096..0.098 rows=1 loops=1)"
+"          Filter: (song_id = $0)"
+"          Rows Removed by Filter: 101"
+"          InitPlan 1 (returns $0)"
+"            ->  Limit  (cost=3.50..3.50 rows=1 width=12) (actual time=0.069..0.069 rows=1 loops=1)"
+"                  ->  Sort  (cost=3.50..3.75 rows=100 width=12) (actual time=0.068..0.068 rows=1 loops=1)"
+"                        Sort Key: songs.uploaded_at"
+"                        Sort Method: top-N heapsort  Memory: 25kB"
+"                        ->  Seq Scan on songs  (cost=0.00..3.00 rows=100 width=12) (actual time=0.017..0.033 rows=102 loops=1)"
+"Planning Time: 1.108 ms"
+"Execution Time: 0.280 ms"
+
+3. Перепишем запрос с использованием JOIN и построим новый план выполнения запроса:
+EXPLAIN ANALYZE SELECT profiles.profile_pic_url FROM profiles
+	JOIN favourites
+	ON favourites.user_id = profiles.user_id
+	JOIN songs
+	ON songs.id = favourites.song_id
+ORDER BY (songs.uploaded_at) ASC
+LIMIT 1;
+
+4. Новый план запроса в текстовом виде:
+QUERY PLAN
+text
+"Limit  (cost=11.52..11.53 rows=1 width=39) (actual time=0.186..0.187 rows=1 loops=1)"
+"  ->  Sort  (cost=11.52..11.77 rows=100 width=39) (actual time=0.184..0.185 rows=1 loops=1)"
+"        Sort Key: songs.uploaded_at"
+"        Sort Method: top-N heapsort  Memory: 25kB"
+"        ->  Hash Join  (cost=8.48..11.02 rows=100 width=39) (actual time=0.114..0.162 rows=102 loops=1)"
+"              Hash Cond: (favourites.song_id = songs.id)"
+"              ->  Hash Join  (cost=4.23..6.50 rows=100 width=35) (actual time=0.055..0.084 rows=102 loops=1)"
+"                    Hash Cond: (favourites.user_id = profiles.user_id)"
+"                    ->  Seq Scan on favourites  (cost=0.00..2.00 rows=100 width=8) (actual time=0.010..0.017 rows=102 loops=1)"
+"                    ->  Hash  (cost=2.99..2.99 rows=99 width=35) (actual time=0.040..0.041 rows=100 loops=1)"
+"                          Buckets: 1024  Batches: 1  Memory Usage: 15kB"
+"                          ->  Seq Scan on profiles  (cost=0.00..2.99 rows=99 width=35) (actual time=0.010..0.020 rows=100 loops=1)"
+"              ->  Hash  (cost=3.00..3.00 rows=100 width=12) (actual time=0.055..0.055 rows=102 loops=1)"
+"                    Buckets: 1024  Batches: 1  Memory Usage: 13kB"
+"                    ->  Seq Scan on songs  (cost=0.00..3.00 rows=100 width=12) (actual time=0.019..0.033 rows=102 loops=1)"
+"Planning Time: 0.442 ms"
+"Execution Time: 0.235 ms"
+
+ВЫВОД: время выполнения запроса после его оптимизации с заменой подзапросов на JOIN уменьшилось.
+
+5. Использование индексов для дальнейшей оптимизации запроса:
+5.1. Какие индексы из используемых в запросе уже созданы БД?
+
+В объединениях JOIN запроса используются пары внешний ключ - первичный ключ:
+- favourites.user_id (Foreign Key) = profiles.user_id (Primary Key/ см. задание #1, user_id было использовано как первичный ключ данной таблицы)
+- songs.id (Primary Key) = favourites.song_id (Foreign Key)
+
+Таким образом, значения столбцов profiles.user_id и songs.id уже должны быть проиндексированы. Проверим:
+SELECT indexname FROM pg_indexes WHERE tablename = 'profiles';
+"profiles_pkey" +
+SELECT indexname FROM pg_indexes WHERE tablename = 'songs';
+"songs_pkey" +
+"songs_url_key"
+
+5.2. Какие еще индексы могут быть созданы для оптимизации запроса?
+Поскольку PostgreSQL не создает автоматически индексы для Foreign Keys, в данном случае могут быть доволнительно созданы индексы для
+таблицы favourites для столбцов:
+	- favourites.user_id;
+	- favourites.song_id;
+
+Также может быть создан индекс по столбцу songs.uploaded_at, используемому при сортировке ORDER BY.
+
+CREATE INDEX favourites_user_id_fk ON favourites (user_id);
+CREATE INDEX favourites_song_id_fk ON favourites (song_id);
+CREATE INDEX songs_uploaded_at ON songs (uploaded_at);
+
+Отключим последовательное сканирование для работы с малым набором данных:
+SET enable_seqscan TO OFF;
+И построим новый план запроса.
+
+6. Новый план запроса:
+QUERY PLAN
+text
+"Limit  (cost=0.44..1.15 rows=1 width=39) (actual time=0.089..0.090 rows=1 loops=1)"
+"  ->  Nested Loop  (cost=0.44..72.94 rows=102 width=39) (actual time=0.087..0.088 rows=1 loops=1)"
+"        ->  Nested Loop  (cost=0.29..49.81 rows=102 width=12) (actual time=0.041..0.042 rows=1 loops=1)"
+"              ->  Index Scan using songs_uploaded_at on songs  (cost=0.14..17.67 rows=102 width=12) (actual time=0.016..0.017 rows=1 loops=1)"
+"              ->  Index Scan using favourites_song_id_fk on favourites  (cost=0.14..0.30 rows=2 width=8) (actual time=0.020..0.020 rows=1 loops=1)"
+"                    Index Cond: (song_id = songs.id)"
+"        ->  Memoize  (cost=0.15..0.33 rows=1 width=35) (actual time=0.043..0.043 rows=1 loops=1)"
+"              Cache Key: favourites.user_id"
+"              Cache Mode: logical"
+"              Hits: 0  Misses: 1  Evictions: 0  Overflows: 0  Memory Usage: 1kB"
+"              ->  Index Scan using profiles_pkey on profiles  (cost=0.14..0.32 rows=1 width=35) (actual time=0.037..0.037 rows=1 loops=1)"
+"                    Index Cond: (user_id = favourites.user_id)"
+"Planning Time: 5.965 ms"
+"Execution Time: 0.169 ms"
+
+Как видно из данного плана, при работе с имеющимся набором данных были использованы следующие индексы:
+	- profiles_pkey (создан автоматически);
+	- favourites_song_id_fk (создан вручную);
+	- songs_uploaded_at on songs (создан вручную);
+Таким образом, два из трех созданных нами на предыдущем этапе индекса были использованы при формировании запроса, а значения favourites.user_id были
+получены их кэша (Cache Key: favourites.user_id).
+
+ВЫВОД: время выполнения запроса после его оптимизации с применением индексов в данном случае также уменьшилось, однако в реальном проекте для окончательного
+вывода о необходимости применения индексов в данном случае потребуются дополнительные тесты на бОльших объемах данных.
+
+
+

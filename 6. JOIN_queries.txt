@@ -1,0 +1,41 @@
+/*Сложный запрос с объединением JOIN: получить id, название наиболее часто встречающийся в плэйлиcтах юзеров альбома,
+а также общее количество его добавлений*/
+SELECT
+albums.id,
+albums.title,
+COUNT(albums.title) OVER (PARTITION BY albums.title) AS in_users_playlists
+FROM users
+	JOIN playlists
+	ON users.id = playlists.user_id
+	JOIN playlists_songs
+	ON playlists.id = playlists_songs.playlist_id
+	JOIN songs
+	ON playlists_songs.song_id = songs.id
+	JOIN albums
+	ON songs.album_id = albums.id
+ORDER BY in_users_playlists DESC
+LIMIT 1;
+
+
+/*Сложный запрос с объединением JOIN: получить id, полное имя, url аватары 10 юзеров с самыми короткими,
+но не нулевыми, по времени подборками "Избранное" (favourites), а также общую длину плейлистов*/
+
+WITH users_with_shortest_favourites AS (
+	SELECT users.id AS id,
+	(users.first_name, users.last_name) AS username,
+	SUM(songs.length) OVER (PARTITION BY users.id) AS favourite_songs_length
+	FROM users
+		JOIN favourites
+		ON users.id = favourites.user_id
+		JOIN songs
+		ON favourites.song_id = songs.id
+	ORDER BY favourite_songs_length
+	LIMIT 10)
+	SELECT users_with_shortest_favourites.id,
+		users_with_shortest_favourites.username,
+		users_with_shortest_favourites.favourite_songs_length,
+		profiles.profile_pic_url AS profile_picture
+	FROM users_with_shortest_favourites
+		JOIN profiles
+		ON users_with_shortest_favourites.id = profiles.user_id
+	ORDER BY users_with_shortest_favourites.favourite_songs_length;

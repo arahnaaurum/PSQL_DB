@@ -1,0 +1,30 @@
+/* Сложный запрос с двухуровневым не коррелирующим вложенным подзапросом - узнаем автора самой длинной книги
+(длина определяется по сумме длины всех глав книги) */
+
+SELECT authors.id,
+	CONCAT(authors.first_name, ' ', authors.last_name) AS author_of_the_longest_book
+	FROM authors
+	WHERE authors.id =
+	(SELECT audiobooks.author_id
+	FROM audiobooks
+	WHERE audiobooks.id = (
+	SELECT chapters.audiobook_id
+		FROM chapters
+		GROUP BY (chapters.audiobook_id)
+		ORDER BY SUM(chapters.length) DESC
+		LIMIT 1
+	));
+	
+
+
+/* Сложный запрос с двухуровневым не коррелирующим вложенным подзапросом - узнаем url аватары юзера,
+добавившего в избранное самую первую по дате заливки песню */
+
+SELECT profiles.profile_pic_url FROM profiles
+	WHERE profiles.user_id = (
+	SELECT favourites.user_id FROM favourites
+	WHERE favourites.song_id = (
+		SELECT songs.id FROM songs
+		ORDER BY (songs.uploaded_at) ASC
+		LIMIT 1
+	));

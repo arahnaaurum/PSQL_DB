@@ -1,0 +1,52 @@
+/*функция для получения имени наиболее прослушиваемого любимого исполнителя у конкретного юзера.
+Для поиска исполнителя анализируется как таблица favourites (избранное), так и все плейлисты юзера,
+в которые добавлен данный исполнитель (если таковые есть).
+Функция возвращает id исполнителя с совокупным максимальным количеством песен в "Избранном" и плэйлистах
+и общее количество его песен, добавленных конкретным юзером.
+Для вывода значения определен отдельный пользовательский тип most_listened_artist.
+Для целей данного проекта функция не выводит исполнителя, который есть только в плэйлистах,
+но не избранном. Тем не менее, этого также можно добиться при использовании FULL OUTER JOIN вместо LEFT JOIN
+при объединении таблиц users_fav и play_artists.
+*/
+
+CREATE TYPE most_listened_fav_artist AS (id INT, total_entries INT);
+
+CREATE FUNCTION most_listened_fav_artist_by_user(request_user_id INTEGER)
+RETURNS most_listened_fav_artist AS
+$$
+WITH users_fav AS (
+	SELECT DISTINCT
+	artists.id AS favourite_artist,
+	COUNT(artists.id) OVER (PARTITION BY artists.id) AS likes
+	FROM users
+		JOIN favourites
+		ON users.id = favourites.user_id
+		JOIN songs
+		ON favourites.song_id = songs.id
+		JOIN artists
+		ON songs.artist_id = artists.id
+	WHERE users.id = request_user_id
+	)
+SELECT DISTINCT
+		users_fav.favourite_artist,
+		(COALESCE(users_fav.likes,0) + COALESCE(play_artists.added_to_playlist,0)) as total
+		FROM users_fav
+		LEFT JOIN (
+			SELECT DISTINCT
+			artists.id AS id,
+			COUNT(artists.id) OVER (PARTITION BY artists.id) AS added_to_playlist
+				FROM users
+				JOIN playlists
+				ON playlists.user_id = users.id
+				JOIN playlists_songs
+				ON playlists_songs.playlist_id = playlists.id
+				JOIN songs
+				ON songs.id = playlists_songs.song_id
+				JOIN artists
+				ON artists.id = songs.artist_id
+			WHERE users.id = request_user_id) AS play_artists
+		ON users_fav.favourite_artist = play_artists.id
+ORDER BY total DESC NULLS LAST
+LIMIT 1
+$$
+LANGUAGE SQL;

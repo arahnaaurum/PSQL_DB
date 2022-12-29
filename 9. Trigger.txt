@@ -1,0 +1,55 @@
+/* данный триггер будеть препятствовать добавлению несовершеннолетим юзером в свою
+подборку аудиокниг книги с возрастным рейтингом 18+ (adults_only) */
+
+/* создадим таблицу для подборок аудиокниг */
+
+CREATE TABLE IF NOT EXISTS users_audiobooks (
+	user_id INT NOT NULL,
+	audiobook_id INT NOT NULL,
+	PRIMARY KEY (user_id, audiobook_id),
+  	FOREIGN KEY (user_id) references users(id),
+  	FOREIGN KEY (audiobook_id) references audiobooks(id)
+);
+
+
+/* создадим функцию для использования в триггере */
+
+CREATE OR REPLACE FUNCTION check_if_age_appropriate_trigger()
+RETURNS TRIGGER AS
+$$
+DECLARE is_adult BOOLEAN;
+DECLARE is_for_adults BOOLEAN;
+
+BEGIN
+	is_adult := (SELECT profiles.is_adult FROM profiles
+				WHERE profiles.user_id = NEW.user_id);
+
+	is_for_adults := (SELECT audiobooks.adults_only FROM audiobooks
+				WHERE audiobooks.id = NEW.audiobook_id);
+
+	IF NOT is_adult AND is_for_adults THEN
+		RAISE EXCEPTION USING MESSAGE = 'This user is under 18';
+		RETURN 999;
+	END IF;
+RETURN NEW;
+END
+$$
+LANGUAGE PLPGSQL;
+
+/* создадим сам триггер */
+CREATE OR REPLACE TRIGGER check_if_age_appropriate_on_insert BEFORE INSERT ON users_audiobooks
+FOR EACH ROW
+EXECUTE FUNCTION check_if_age_appropriate_trigger ();
+
+/* проверим триггер при недопустимой операции */
+insert into users_audiobooks values (8,1);
+
+/* проверим триггер при допустимой операции */
+insert into users_audiobooks values (1,1);
+
+
+
+
+
+
+

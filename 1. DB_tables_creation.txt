@@ -1,0 +1,130 @@
+
+/*создаем БД*/
+CREATE DATABASE ya_music;
+
+/*разделим основную и дополнительную (profiles) информацию о юзерах*/
+CREATE TABLE users (
+	id SERIAL PRIMARY KEY,
+	first_name VARCHAR(50) NOT NULL,
+	last_name VARCHAR(50) NOT NULL,
+	email VARCHAR(120) NOT NULL UNIQUE,
+	phone VARCHAR(15) UNIQUE
+);
+
+CREATE TABLE profiles (
+	user_id INT NOT NULL UNIQUE,
+/*установим аватар юзера по умолчанию. Аватар теоретически м.б. не уникальным.*/
+	profile_pic_url VARCHAR(250) DEFAULT 'https://img.freepik.com/free-vector/sunflower-isolated-white_1284-3463.jpg?w=2000',
+	created_at TIMESTAMP,
+/*в качестве PK используем user_id, т.к. он всегда уникален (1 юзер - 1 профиль)*/
+	PRIMARY KEY (user_id),
+	is_adult BOOLEAN DEFAULT FALSE
+);
+
+
+CREATE TABLE artists (
+	id SERIAL PRIMARY KEY,
+/*зд. столбец name не подразделяется на имя/фамилию, т.к. это м.б. сценический псевдоним*/
+	name VARCHAR(150) NOT NULL,
+	description VARCHAR(250) NOT NULL,
+/*установим фото по умолчанию*/
+	artist_pic_url VARCHAR(250) DEFAULT 'https://artincontext.org/wp-content/uploads/2022/06/forget-me-not-flower-Drawing-10-1.jpg'
+);
+
+/*"Похожие исполнители" здесь - MANY-TO-MANY связь между объектами одной и той же таблицы artists.
+Для списка похожих исполнителей можно было бы так же создать ARRAY FIELD alike_artists в самой таблице artists, но в этом проекте реализовано более "классическое" решение.*/
+CREATE TABLE alike_artists (
+	id SERIAL PRIMARY KEY,
+	artist_id INT NOT NULL,
+	alike_artist_id INT NOT NULL
+);
+
+CREATE TABLE songs (
+	id SERIAL PRIMARY KEY,
+	title VARCHAR(50) NOT NULL,
+	url VARCHAR(250) NOT NULL UNIQUE,
+/*в рамках данного проекта реализуем связь ONE-TO-MANY (один исполнитель - несколько песен)
+Задача, когда песня принадлежит одновременно 2 исполнителям, м.б. решена различными способами
+(связь MANY-TO-MANY и промежуточная таблица, регистрация коллаборации как отдельного нового исполнителя и т.д.)*/
+	artist_id INT NOT NULL,
+/*песня м.б. вне альбома, поэтому в поле album_id допустимо значение NULL*/
+	album_id INT,
+	uploaded_at TIMESTAMP NOT NULL,
+	size INT NOT NULL,
+	length DOUBLE PRECISION NOT NULL
+);
+
+
+/* хотя поле artist_id может дублировать информацию об исполнителе, уже содержщуюся в таблице songs (что не совсем корректно с точки зрения "нормализации" таблиц),
+на практике это может быть удобно, так как иначе при необходимости получить информацию об авторе альбома необходимо будет обращаться к объектам песен, входящим в альбом.
+Кроме того, возможны случаи, когда авторы песен и альбома не совпадают (e.g., альбом издан от лица "various artists")*/
+CREATE TABLE albums (
+	id SERIAL PRIMARY KEY,
+	title VARCHAR(50) NOT NULL,
+	year INT NOT NULL,
+	cover_pic_url VARCHAR(250) NOT NULL UNIQUE,
+	artist_id INT NOT NULL,
+	label_id INT NOT NULL
+);
+
+CREATE TABLE labels (
+	id SERIAL PRIMARY KEY,
+	title VARCHAR(50) NOT NULL,
+	description VARCHAR(250) NOT NULL
+);
+
+/*плэйлисты юзеров*/
+CREATE TABLE playlists (
+	id SERIAL PRIMARY KEY,
+	user_id INT NOT NULL,
+	title VARCHAR(50) NOT NULL,
+	created_at TIMESTAMP
+);
+
+/*MANY-TO-MANY связь плэйлистов и песен*/
+CREATE TABLE playlists_songs (
+	playlist_id INT NOT NULL,
+	song_id INT NOT NULL,
+	PRIMARY KEY (playlist_id, song_id)
+);
+
+/* таблица избранных песен пользователей (т.н. "Понравившееся"). В рамках данного проекта не создается
+аналогичная таблица песен с дизлайками, хотя в реальном сервисе нечто подобное, скорее всего, используется для алгоритма рекомендаций. */
+CREATE TABLE favourites (
+	user_id INT NOT NULL,
+	song_id INT NOT NULL,
+	PRIMARY KEY (user_id, song_id)
+);
+
+/* аудиокниги*/
+CREATE TABLE audiobooks (
+	id SERIAL PRIMARY KEY,
+	title VARCHAR(250) NOT NULL,
+	year INT NOT NULL,
+	cover_pic_url VARCHAR(250) NOT NULL UNIQUE,
+	author_id INT NOT NULL,
+/* поле voice_artist_id ссылается на озвучивающего исполнителя из таблицы artists */
+	voice_artist_id INT NOT NULL,
+	label_id INT NOT NULL,
+/* в целях данного задания рейтинг аудиокниг (adults_only) будет определяться либо как 18+ (true), либо как все остальное (false)*/
+	adults_only BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+/* поскольку автор может писать под псевдонимом, поле last_name может оставаться пустым */
+CREATE TABLE authors (
+	id SERIAL PRIMARY KEY,
+	first_name VARCHAR(50) NOT NULL,
+	last_name VARCHAR(50)
+);
+
+
+/* файлы (главы) аудиокниги*/
+CREATE TABLE chapters (
+	id SERIAL PRIMARY KEY,
+	title VARCHAR(250) NOT NULL,
+	url VARCHAR(250) NOT NULL UNIQUE,
+	audiobook_id INT NOT NULL,
+	uploaded_at TIMESTAMP NOT NULL,
+	size INT NOT NULL,
+	length DOUBLE PRECISION NOT NULL
+);
